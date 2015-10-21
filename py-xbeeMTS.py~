@@ -1,0 +1,258 @@
+#!/usr/bin/python
+#                       _               __  __ _____ ____  
+# _ __  _   _     __  _| |__   ___  ___|  \/  |_   _/ ___| 
+#| '_ \| | | |____\ \/ / '_ \ / _ \/ _ \ |\/| | | | \___ \ 
+#| |_) | |_| |_____>  <| |_) |  __/  __/ |  | | | |  ___) |
+#| .__/ \__, |    /_/\_\_.__/ \___|\___|_|  |_| |_| |____/ 
+#|_|    |___/    
+#
+#
+###############################################################
+# 
+#              AUTORS
+#
+#       Moscato Giuseppe aka peppeska <moscatog@yahoo.it>
+# 
+#       Altamore Giovanni <zzuncu@hotmail.com>
+# 
+# 
+# 
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 3 of the License, or
+#    (at your option) any later version.
+# 
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+# 
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+# 
+###############################################################
+
+
+import gtk
+import gtk.glade
+import serial,array,time
+import string
+import pango
+
+from xbee import xbee
+
+
+class Xbeefun(gtk.Window):
+
+	def __init__(self):
+                ############################################
+		#Inizializzazione Variabili per l'ambiente grafico
+
+		mainGlade = gtk.glade.XML("xbeeMTS/XbeeInterface.glade")
+		# Load First Window
+		self.win = mainGlade.get_widget("window1")
+		self.win.set_title("Py-Xbee Fun")
+                self.win.connect("delete_event",self.close_dialog)
+
+                self.butt_temp=mainGlade.get_widget("butt_temp")
+                self.butt_temp.connect("clicked",self.read_temp)
+
+		self.butt_quit=mainGlade.get_widget("butt_quit")
+                self.butt_quit.connect("clicked",self.quit)
+
+                self.text_temp=mainGlade.get_widget("text_temp")
+                self.text_temp.modify_font(pango.FontDescription('sans bold 26'))
+
+
+                self.win.show_all()
+
+
+
+                self.rbutt0=mainGlade.get_widget("radiobutton0")
+                self.rbutt1=mainGlade.get_widget("radiobutton1")
+                self.rbutt2=mainGlade.get_widget("radiobutton2")
+                self.rbutt3=mainGlade.get_widget("radiobutton3")
+                self.rbutt4=mainGlade.get_widget("radiobutton4")
+            
+                self.entry_at=mainGlade.get_widget("entry_at")
+                self.text_at=mainGlade.get_widget("text_at")
+                self.butt_at=mainGlade.get_widget("butt_at")
+                self.butt_at.connect("clicked",self.send_AT)
+        
+                self.port=mainGlade.get_widget("comboboxentry-port")
+                self.baudrate=mainGlade.get_widget("comboboxentry-baudrate")
+                self.bytesize=mainGlade.get_widget("comboboxentry-bytesize")
+                self.parity=mainGlade.get_widget("comboboxentry-parity")
+                self.stopbits=mainGlade.get_widget("comboboxentry-stopbits")
+                self.butt_okserial=mainGlade.get_widget("butt_okserial")
+                self.butt_okserial.connect("clicked",self.setParams)
+                self.label_params=mainGlade.get_widget("label_params")
+
+                self.item_quit=mainGlade.get_widget("item_quit")
+                self.item_quit.connect("activate",self.quit)
+
+                self.buffer=gtk.TextBuffer()
+                self.buffer_temp=gtk.TextBuffer()
+
+
+#                self.ser = serial.Serial(port="/dev/ttyUSB0", baudrate=115200, bytesize=8, parity='N', stopbits=1)
+
+
+		#Il pic della MuIn trasmette valori ascii di lettura da 0 a 1024, il livello di tensione del sensore ha un range che va da 0 a 5000 mV, definiamo quindi il passo di lettura del valore
+                self.passo=5000.0/1024
+                
+
+                self.textAT=''
+
+############################################################
+# FUNZIONI GRAFICHE
+############################################################
+	def close_dialog(self,widget,data=0):
+		gtk.main_quit()
+
+        def read_temp(self,widget):
+		try:
+	                output=self.read_ADC()
+		except:
+			print "ERRORE! verificare la connessione"
+			return 0
+		
+                if(self.rbutt0.get_active()):
+                      valore=int(output[2]+output[3])
+                elif(self.rbutt1.get_active()):
+                      valore=int(output[6]+output[7])
+                elif(self.rbutt2.get_active()):
+                      valore=int(output[10]+output[11])
+                elif(self.rbutt3.get_active()):
+                      valore=int(output[14]+output[15])
+                elif(self.rbutt4.get_active()):
+                      valore=int(output[18]+output[19])
+
+                print "valore: "+str(valore)
+                print self.passo
+
+                temp=(self.passo*valore)/10
+
+                self.buffer_temp.set_text(str("%.2f" % temp))
+                self.text_temp.set_buffer(self.buffer_temp)
+
+	def quit(self, widget):
+        	self.dialog = gtk.Dialog('Quit', self.win,
+                gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
+                (gtk.STOCK_OK, gtk.RESPONSE_ACCEPT, gtk.STOCK_CANCEL, gtk.RESPONSE_REJECT))
+        
+		self.dialog.set_property('allow-grow',0);
+			
+		self.dialog.vbox.pack_start(gtk.Label("Do you really want to quit?"))
+        	
+		self.dialog.show_all()
+      		response = self.dialog.run()
+		
+        	if response == gtk.RESPONSE_ACCEPT:
+            		return gtk.main_quit()
+        	elif response == gtk.RESPONSE_REJECT:
+            		self.dialog.destroy()
+        	self.dialog.destroy()
+
+	def send_serial_AT(self,widget):
+
+
+        def setParams(self,widget):
+		# temp sta per variabile temporanea
+                temp=self.parity.get_text()
+
+                if temp=="NONE":
+                  parity="N"
+                elif temp=="ODD":
+                  parity="O"
+                elif temp=="EVEN":
+                  parity="E"
+                elif temp=="MARK":
+                  parity="M"
+                elif temp=="SPACE":
+                  parity="S"
+                
+                print self.port.get_text()
+                print self.baudrate.get_text()
+                print self.bytesize.get_text()
+                print self.parity.get_text()
+                print self.stopbits.get_text()
+
+
+                try:
+                  self.ser = self.connect_Serial(self.port.get_text(), self.baudrate.get_text(), int(self.bytesize.get_text()),parity,int(self.stopbits.get_text()))
+#                  self.ser = serial.Serial(self.port.get_text(), self.baudrate.get_text(), int(self.bytesize.get_text()),parity,int(self.stopbits.get_text()))
+                  self.label_params.set_text("cambiamenti_effettuati")
+                except:
+                  self.label_params.set_text("ERRORE! Controllare i parametri!")
+
+
+############################################################
+# FUNZIONI XBEE
+############################################################
+
+	# Questa funzione restituisce una connessione seriali con i parametri passati
+	# occorre conservare la connessione restituita (self.ser)   
+	def connect_Serial(self,port,baudrate,bytesize,parity,stopbits):
+                  return serial.Serial(port,baudrate,bytesize,parity,stopbits)
+   	
+	# questa funzione legge tutti gli ingressi della porta A e restituisce un array (la dimensione dell'array e' specificata nel user manual della MuIn)
+	# esempio array = [@,A,ch1,ch1,space,space,ch2,ch2,space,space,ch3,ch3,space,space,ch4,ch4,space,space,ch5,ch5,#]	
+        
+	def read_ADC(self):
+                ######### ADC ##########
+
+		# stringa per lettura da canali ADC della porta A
+                com_str_tosend="@A00000#"
+                
+                self.ser.write(com_str_tosend)
+                   
+                print "ADC: "
+                time.sleep(2)
+                output = []
+                while self.ser.inWaiting():
+                    output.append(self.ser.read())
+                print output
+
+		return output
+
+
+        # funzione per la trasmissione dei comandi AT via seriale
+        def send_AT(self,widget):
+
+          com_str_tosend=self.entry_at.get_text()
+
+          if com_str_tosend == '+++':
+            self.ser.write(com_str_tosend)
+          else:
+            self.ser.write('%s\r' % com_str_tosend)
+
+          print "AT: "
+          time.sleep(2)
+          output = []
+          while self.ser.inWaiting():
+            output.append(self.ser.read())
+          print output
+          
+          self.textAT+="\n"+"".join(output).replace('\r', '\n').rstrip()
+          
+          self.buffer.set_text(self.textAT)
+
+          self.text_at.set_buffer(self.buffer)
+           
+          self.entry_at.set_text("") 
+          return "AT"
+          
+	
+        
+        
+        
+        def main(self):
+		if __name__ == '__main__':
+			gtk.main()	
+
+
+if __name__ == "__main__":
+	xbeefun = Xbeefun()
+	xbeefun.main()
